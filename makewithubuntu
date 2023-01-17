@@ -1,0 +1,61 @@
+#!/bin/bash
+
+FINAL_IMAGE=mysshimage
+
+TMPDIR=/tmp/buildssh$$
+mkdir -p $TMPDIR
+pushd $TMPDIR >/dev/null 2>&1 || exit
+
+cat <<EOF > Dockerfile
+FROM ubuntu:latest
+RUN apt-get update \
+ && apt-get -y install openssh-client vim-tiny
+
+WORKDIR /root
+
+CMD [ "/bin/bash" ]
+EOF
+
+# build image
+docker build -t ubuntussh:latest .
+popd > /dev/null 2>&1
+rm -rf $TMPDIR
+
+# run in background while sleeping so we can modify it
+docker run -d --name tmpsshinstance ubuntussh:latest sleep 30m
+
+# copy our .ssh dir
+docker cp ~/.ssh tmpsshinstance:/root/.ssh
+
+# change ownership
+docker exec tmpsshinstance chown -R root:root /root/.ssh
+
+# update .bashrc
+DOLR='$'
+docker exec tmpsshinstance bash -c "echo 'eval $DOLR(ssh-agent)' >> /root/.bashrc"
+docker exec tmpsshinstance bash -c "echo 'ssh-add' >> /root/.bashrc"
+
+# create new image
+echo "Making a new image with a copy of .ssh in place"
+docker stop tmpsshinstance
+docker commit -c 'CMD [ "/bin/bash" ]' tmpsshinstance $FINAL_IMAGE
+docker rm tmpsshinstance
+
+# output some doc
+cat <<EOF
+
+!!!WARNING!!!
+
+"$FINAL_IMAGE" now has your .ssh dir copied and ready to use with ssh
+
+It is NOT recommended to push for general use. 
+
+Use only for dev purposes.
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+Run:
+
+docker run --rm -it $FINAL_IMAGE bash
+
+EOF
