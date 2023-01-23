@@ -2,6 +2,7 @@
 
 FINAL_IMAGE=mysshimage
 
+DOLR='$'
 TMPDIR=/tmp/buildssh$$
 mkdir -p $TMPDIR
 pushd $TMPDIR >/dev/null 2>&1 || exit
@@ -9,7 +10,13 @@ pushd $TMPDIR >/dev/null 2>&1 || exit
 cat <<EOF > Dockerfile
 FROM ubuntu:latest
 RUN apt-get update \
- && apt-get -y install openssh-client vim-tiny
+ && apt-get -y install openssh-client vim-tiny \
+ && mkdir -p /root \
+ && echo 'if [ -z "${DOLR}SSH_AUTH_SOCK" ]; then' > /root/.sshrc \
+ && echo '  eval $DOLR(ssh-agent)' >> /root/.sshrc \
+ && echo '  ssh-add' >> /root/.sshrc \
+ && echo 'fi' >> /root/.sshrc \
+ && true
 
 WORKDIR /root
 
@@ -25,21 +32,24 @@ rm -rf $TMPDIR
 docker run -d --name tmpsshinstance ubuntussh:latest sleep 30m
 
 # copy our .ssh dir
-docker cp ~/.ssh tmpsshinstance:/root/.ssh
+docker cp -L ~/.ssh tmpsshinstance:/root/.ssh
 
 # change ownership
 docker exec tmpsshinstance chown -R root:root /root/.ssh
 
 # update .bashrc
-DOLR='$'
-docker exec tmpsshinstance bash -c "echo 'eval $DOLR(ssh-agent)' >> /root/.bashrc"
-docker exec tmpsshinstance bash -c "echo 'ssh-add' >> /root/.bashrc"
+docker exec tmpsshinstance bash -c "echo 'source /root/.sshrc' >> /root/.bashrc"
 
 # create new image
 echo "Making a new image with a copy of .ssh in place"
 docker stop tmpsshinstance
 docker commit -c 'CMD [ "/bin/bash" ]' tmpsshinstance $FINAL_IMAGE
 docker rm tmpsshinstance
+
+# check for lima/rancher
+if [ -n "$LIMA_HOME" ]; then
+    LIMA_SSH_AUTH_SOCK=$(limactl shell 0 printenv SSH_AUTH_SOCK)
+fi
 
 # output some doc
 cat <<EOF
@@ -56,6 +66,15 @@ Use only for dev purposes.
 
 Run:
 
-docker run --rm -it $FINAL_IMAGE bash
+docker run --rm -it $FINAL_IMAGE
 
 EOF
+
+if [ -n "$LIMA_SSH_AUTH_SOCK" ]; then
+    cat <<EOF
+or to use your existing ssh socket:
+
+docker run --rm -it -v $LIMA_SSH_AUTH_SOCK:$LIMA_SSH_AUTH_SOCK -e SSH_AUTH_SOCK=$LIMA_SSH_AUTH_SOCK $FINAL_IMAGE
+
+EOF
+fi
