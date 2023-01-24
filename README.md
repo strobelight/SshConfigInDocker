@@ -10,5 +10,3 @@ The downside is, the generated image should **not** be made available for genera
 
 ## makewithubuntu
 This script builds a ubuntu image with ssh and a copy of your .ssh directory. The .bashrc is modified to start an ssh agent, and add the keys and certs that may be present, prompting for passphrases if needed.
-
-
